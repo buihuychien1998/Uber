@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Uber</string>
+    <string name="i_am_driver">I am driver</string>
+    <string name="i_am_customer">I am customer</string>
+    <string name="email">Email</string>
+    <string name="password">Password</string>
+    <string name="login">Login</string>
+    <string name="registration">Registration</string>
+    <string name="title_activity_driver_map">Map</string>
+</resources>
