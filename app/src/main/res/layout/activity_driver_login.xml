@@ -23,7 +23,6 @@
         android:autofillHints="@string/password"
         android:hint="@string/password"
         android:inputType="textPassword"
-        android:text="@string/app_name"
         android:textColor="@color/colorPrimary"
         android:textColorHint="@color/colorPrimary" />
 

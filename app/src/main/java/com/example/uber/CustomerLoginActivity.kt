@@ -9,17 +9,17 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.android.synthetic.main.activity_driver_login.*
 
-class CustomerLoginActivity : AppCompatActivity(), View.OnClickListener {
+class CustomerLoginActivity : BaseActivity(), View.OnClickListener {
     private var firebaseAuth: FirebaseAuth? = null
     private var firebaseAuthStateListener: FirebaseAuth.AuthStateListener? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_driver_login)
+        setContentView(R.layout.activity_customer_login)
         firebaseAuth = FirebaseAuth.getInstance()
         firebaseAuthStateListener = FirebaseAuth.AuthStateListener {
             val user = FirebaseAuth.getInstance().currentUser
             user?.let {
-                startActivity(Intent(this, MapActivity::class.java))
+                startActivity(Intent(this, CustomerMapActivity::class.java))
                 finish()
             }
         }
@@ -57,11 +57,11 @@ class CustomerLoginActivity : AppCompatActivity(), View.OnClickListener {
 
     override fun onStart() {
         super.onStart()
-        firebaseAuth?.addAuthStateListener { firebaseAuthStateListener }
+        firebaseAuthStateListener?.let { firebaseAuth?.addAuthStateListener(it) }
     }
 
     override fun onStop() {
         super.onStop()
-        firebaseAuth?.removeAuthStateListener { firebaseAuthStateListener }
+        firebaseAuthStateListener?.let { firebaseAuth?.removeAuthStateListener(it) }
     }
 }

@@ -3,13 +3,14 @@ package com.example.uber
 import android.content.Intent
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Toast
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.android.synthetic.main.activity_driver_login.*
 
-class DriverLoginActivity : AppCompatActivity(), View.OnClickListener {
+class DriverLoginActivity : BaseActivity(), View.OnClickListener {
     private var firebaseAuth: FirebaseAuth? = null
     private var firebaseAuthStateListener: FirebaseAuth.AuthStateListener? = null
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -47,6 +48,7 @@ class DriverLoginActivity : AppCompatActivity(), View.OnClickListener {
                         db.collection("Users").document("Drivers").set(docData)
 
                     }else{
+                        Log.w(TAG, "createUserWithEmail:failure", it.exception)
                         Toast.makeText(this, "Sign Up Error", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -57,11 +59,11 @@ class DriverLoginActivity : AppCompatActivity(), View.OnClickListener {
 
     override fun onStart() {
         super.onStart()
-        firebaseAuth?.addAuthStateListener { firebaseAuthStateListener }
+        firebaseAuthStateListener?.let { firebaseAuth?.addAuthStateListener(it) }
     }
 
     override fun onStop() {
         super.onStop()
-        firebaseAuth?.removeAuthStateListener { firebaseAuthStateListener }
+        firebaseAuthStateListener?.let { firebaseAuth?.removeAuthStateListener(it) }
     }
 }

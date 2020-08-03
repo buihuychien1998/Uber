@@ -9,6 +9,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.view.View
@@ -22,17 +23,18 @@ import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
+import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.Marker
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.BuildConfig
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.GeoPoint
 import org.imperiumlabs.geofirestore.GeoFirestore
 
-
-class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
+class CustomerMapActivity : BaseActivity(), OnMapReadyCallback,
+//    LocationListener,
     View.OnClickListener {
     private lateinit var mMap: GoogleMap
     private var mGoogleSignInClient: GoogleSignInClient? = null
@@ -42,55 +44,77 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
     private var mLocationCallback: LocationCallback? = null
     private var locationManager: LocationManager? = null
     private val REQUEST_PERMISSIONS_REQUEST_CODE = 14
+    internal var mCurrLocationMarker: Marker? = null
 
     companion object {
-        private const val DRIVER_AVAILABLE_COLLECTION = "DriverAvailable"
+        private const val CUSTOMER_REQUEST_COLLECTION = "CustomerRequest"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_driver_map)
+        setContentView(R.layout.activity_customer_map)
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         val mapFragment = supportFragmentManager
             .findFragmentById(R.id.map) as SupportMapFragment
         mapFragment.getMapAsync(this)
-        checkEnableGPS()
-        buildGoogleApiClient()
+
+    }
+
+    private fun createLocationCallback() {
+//        mLocationCallback = object : LocationCallback() {
+//            override fun onLocationResult(locationResult: LocationResult?) {
+//                super.onLocationResult(locationResult)
+//                val location = locationResult?.getLastLocation()
+//                location?.let {
+//                    //update location
+//                    lastLocation = it
+//                    val currentLocation = LatLng(it.latitude, it.longitude)
+//                    val cameraUpdate = CameraUpdateFactory.newLatLngZoom(
+//                        currentLocation, 15f
+//                    )
+//                    mMap.addMarker(
+//                        MarkerOptions().position(currentLocation).title("Marker in current location")
+//                    )
+//                    mMap.moveCamera(CameraUpdateFactory.newLatLng(currentLocation))
+//                    mMap.animateCamera(cameraUpdate)
+//                }
+//            }
+//        }
         mLocationCallback = object : LocationCallback() {
-            override fun onLocationResult(locationResult: LocationResult?) {
-                super.onLocationResult(locationResult)
-                val location = locationResult?.getLastLocation()
-                location?.let {
-                    //update location
-                    lastLocation = it
+            override fun onLocationResult(locationResult: LocationResult) {
+                val locationList = locationResult.locations
+                if (locationList.isNotEmpty()) {
+                    //The last location in the list is the newest
+                    val location = locationList.last()
+                    Log.i(
+                        TAG,
+                        "Location: " + location.getLatitude() + " " + location.getLongitude()
+                    )
+                    lastLocation = location
+                    mCurrLocationMarker?.remove()
+
+                    //Place current location marker
+                    val latLng = LatLng(location.latitude, location.longitude)
+                    val markerOptions = MarkerOptions()
+                    markerOptions.position(latLng)
+                    markerOptions.title("Current Position")
+                    markerOptions.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_MAGENTA))
+                    mCurrLocationMarker = mMap.addMarker(markerOptions)
+
+                    //move map camera
+                    mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(latLng, 11.0F))
                 }
             }
         }
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return
-        }
-        fusedLocationClient?.lastLocation?.addOnSuccessListener { location: Location? ->
-            location?.let { it: Location ->
-                // Logic to handle location object
-                lastLocation = it
-            } ?: kotlin.run {
-                // Handle Null case or Request periodic location update https://developer.android.com/training/location/receive-location-updates
-            }
+    }
+
+    private fun createLocationRequest() {
+        locationRequest = LocationRequest.create()?.apply {
+            interval = 10000
+            fastestInterval = 5000
+//            priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+            priority = LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY
         }
     }
 
@@ -108,9 +132,13 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
 
     override fun onStart() {
         super.onStart()
+        checkEnableGPS()
+        buildGoogleApiClient()
+        createLocationRequest()
+        createLocationCallback()
         if (!checkPermissions()) {
-            startLocationUpdates()
             requestPermissions()
+            startLocationUpdates()
         } else {
             getLastLocation()
             startLocationUpdates()
@@ -126,11 +154,12 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
         super.onStop()
         val uid = FirebaseAuth.getInstance().uid
         val db = FirebaseFirestore.getInstance()
-        val geoFire = GeoFirestore(db.collection(DRIVER_AVAILABLE_COLLECTION))
+        val geoFire = GeoFirestore(db.collection(CUSTOMER_REQUEST_COLLECTION))
         geoFire.removeLocation(uid)
     }
 
 
+    @SuppressLint("MissingPermission")
     private fun checkEnableGPS() {
         locationManager =
             getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -149,7 +178,8 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
                 startActivity(intent)
             }
         }
-
+//        locationManager?.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 4000L, 0F, this)
+//        locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 4000L, 0F, this)
     }
 
     /**
@@ -161,14 +191,36 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
      * it inside the SupportMapFragment. This method will only be triggered once the user has
      * installed Google Play services and returned to the app.
      */
+    @SuppressLint("MissingPermission")
     override fun onMapReady(googleMap: GoogleMap) {
         mMap = googleMap
+        mMap.mapType = GoogleMap.MAP_TYPE_HYBRID
+        mMap.isMyLocationEnabled = true
+        // Add a marker in Sydney and move the camera
+//        val sydney = LatLng(-34.0, 151.0)
+//        lastLocation?.let {
+//            onLocationChanged(it)
+//            val sydney = LatLng(it.latitude, it.longitude)
+//            mMap.addMarker(MarkerOptions().position(sydney).title("Marker in Sydney"))
+//            mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
+//        } ?: kotlin.run {
+//            onStart()
+////            val sydney = LatLng(lastLocation.latitude, lastLocation.longitude)
+////            mMap.addMarker(MarkerOptions().position(sydney).title("Marker in Sydney"))
+////            mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
+//        }
+
+    }
 
 
+    /**
+     * Return the current state of the permissions needed.
+     */
+    private fun checkPermissions(): Boolean {
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+            ) != PackageManager.PERMISSION_GRANTED || ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_COARSE_LOCATION
             ) != PackageManager.PERMISSION_GRANTED
@@ -180,41 +232,18 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
             //                                          int[] grantResults)
             // to handle the case where the user grants the permission. See the documentation
             // for ActivityCompat#requestPermissions for more details.
-            return
+            return false
         }
-        mMap.isMyLocationEnabled = true
-        // Add a marker in Sydney and move the camera
-//        val sydney = LatLng(-34.0, 151.0)
-        lastLocation?.let {
-            onLocationChanged(it)
-            val sydney = LatLng(it.latitude, it.longitude)
-            mMap.addMarker(MarkerOptions().position(sydney).title("Marker in Sydney"))
-            mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
-        } ?: kotlin.run {
-            onStart()
-//            val sydney = LatLng(lastLocation.latitude, lastLocation.longitude)
-//            mMap.addMarker(MarkerOptions().position(sydney).title("Marker in Sydney"))
-//            mMap.moveCamera(CameraUpdateFactory.newLatLng(sydney))
-        }
-
-    }
-
-
-    /**
-     * Return the current state of the permissions needed.
-     */
-    private fun checkPermissions(): Boolean {
-        val permissionState = ActivityCompat.checkSelfPermission(
-            this,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-        return permissionState == PackageManager.PERMISSION_GRANTED
+        return true
     }
 
     private fun startLocationPermissionRequest() {
         ActivityCompat.requestPermissions(
             this,
-            arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION),
+            arrayOf(
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ),
             REQUEST_PERMISSIONS_REQUEST_CODE
         )
     }
@@ -225,6 +254,9 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
             ActivityCompat.shouldShowRequestPermissionRationale(
                 this,
                 Manifest.permission.ACCESS_COARSE_LOCATION
+            ) && ActivityCompat.shouldShowRequestPermissionRationale(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
             )
         // Provide an additional rationale to the user. This would happen if the user denied the
         // request previously, but didn't check the "Don't ask again" checkbox.
@@ -311,7 +343,7 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
         fusedLocationClient?.lastLocation?.addOnCompleteListener(this) { task ->
             if (task.isSuccessful && task.result != null) {
                 lastLocation = task.result
-                onLocationChanged(lastLocation)
+//                lastLocation?.let { onLocationChanged(it) }
             } else {
                 Log.w(
                     TAG,
@@ -321,50 +353,32 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
                 Toast.makeText(this, getString(R.string.no_location_detected), Toast.LENGTH_SHORT)
                     .show()
             }
+        } ?: kotlin.run {
+            // Handle Null case or Request periodic location update https://developer.android.com/training/location/receive-location-updates
         }
+//        fusedLocationClient?.lastLocation?.addOnSuccessListener { location: Location? ->
+//            location?.let { it: Location ->
+//                // Logic to handle location object
+//                lastLocation = it
+//            }
+//        }?: kotlin.run {
+//            // Handle Null case or Request periodic location update https://developer.android.com/training/location/receive-location-updates
+//        }
     }
 
     private fun stopLocationUpdates() {
         fusedLocationClient?.removeLocationUpdates(mLocationCallback)
     }
 
+    @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
-            return
-        }
-        fusedLocationClient?.requestLocationUpdates(locationRequest, mLocationCallback, null)
+        fusedLocationClient?.requestLocationUpdates(
+            locationRequest,
+            mLocationCallback,
+            Looper.myLooper()
+        )
     }
 
-    // private void showSnackbar(final String text) {
-    //    if (canvasLayout != null) {
-    //        Snackbar.make(canvasLayout, text, Snackbar.LENGTH_LONG).show();
-    //    }
-    //}
-    // this also cause wrong code and as I see it dont is necessary
-    // because the same method which is really used
-
-
-    // private void showSnackbar(final String text) {
-    //    if (canvasLayout != null) {
-    //        Snackbar.make(canvasLayout, text, Snackbar.LENGTH_LONG).show();
-    //    }
-    //}
-    // this also cause wrong code and as I see it dont is necessary
-    // because the same method which is really used
     private fun showSnackbar(
         mainTextStringId: Int, actionStringId: Int,
         listener: View.OnClickListener
@@ -377,25 +391,25 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
             .setAction(getString(actionStringId), listener).show()
     }
 
-    override fun onLocationChanged(location: Location?) {
-        lastLocation = location
-        location?.let { it ->
-            val currentLocation = LatLng(it.latitude, it.longitude)
-            val cameraUpdate = CameraUpdateFactory.newLatLngZoom(
-                currentLocation, 15f
-            )
-            mMap.addMarker(
-                MarkerOptions().position(currentLocation).title("Marker in current location")
-            )
-            mMap.moveCamera(CameraUpdateFactory.newLatLng(currentLocation))
-            mMap.animateCamera(cameraUpdate)
-            val uid = FirebaseAuth.getInstance().uid
-            val db = FirebaseFirestore.getInstance()
-            val geoFire = GeoFirestore(db.collection(DRIVER_AVAILABLE_COLLECTION))
-            geoFire.setLocation(uid, GeoPoint(it.latitude, it.longitude))
-        }
-
-    }
+//    override fun onLocationChanged(location: Location) {
+//        lastLocation = location
+//        location?.let { it ->
+//            val currentLocation = LatLng(it.latitude, it.longitude)
+//            val cameraUpdate = CameraUpdateFactory.newLatLngZoom(
+//                currentLocation, 15f
+//            )
+//            mMap.addMarker(
+//                MarkerOptions().position(currentLocation).title("Marker in current location")
+//            )
+//            mMap.moveCamera(CameraUpdateFactory.newLatLng(currentLocation))
+//            mMap.animateCamera(cameraUpdate)
+//            val uid = FirebaseAuth.getInstance().uid
+//            val db = FirebaseFirestore.getInstance()
+//            val geoFire = GeoFirestore(db.collection(CUSTOMER_REQUEST_COLLECTION))
+//            geoFire.setLocation(uid, GeoPoint(it.latitude, it.longitude))
+//        }
+//
+//    }
 
     override fun onClick(p0: View?) {
         when (p0?.id) {
@@ -407,4 +421,6 @@ class DriverMapActivity : BaseActivity(), OnMapReadyCallback, LocationListener,
 
         }
     }
+
+
 }
